@@ -10,7 +10,7 @@ use Symfony\Component\Routing\Annotation\Route;
 class ConferenceController extends AbstractController
 {
     /**
-     * @Route("/", name="Homepage")
+     * @Route("/", name="homepage")
      */
     public function index(): Response
     {
