@@ -2,6 +2,7 @@
 
 namespace App\MassageHandler;
 
+use App\ImageOptimizer;
 use App\Message\CommentMessage;
 use App\Repository\CommentRepository;
 use App\SpamChecker;
@@ -21,14 +22,16 @@ class CommentMessageHandler implements MessageHandlerInterface
     private $bus;
     private $workflow;
     private $mailer;
+    private $imageOptimizer;
     private $adminEmail;
+    private $photoDir;
     private $logger;
 
     public function __construct(EntityManagerInterface $entityManager,
-                                SpamChecker $spamChecker, CommentRepository $commentRepository,
-                                MessageBusInterface $bus, WorkflowInterface $commentStateMachine,
-                                MailerInterface $mailer, string $adminEmail,
-                                LoggerInterface $logger = null)
+                                SpamChecker            $spamChecker, CommentRepository $commentRepository,
+                                MessageBusInterface    $bus, WorkflowInterface $commentStateMachine,
+                                MailerInterface        $mailer, ImageOptimizer $imageOptimizer, string $adminEmail,
+                                string                 $photoDir, LoggerInterface $logger = null)
     {
         $this->spamChecker = $spamChecker;
         $this->entityManager = $entityManager;
@@ -36,7 +39,9 @@ class CommentMessageHandler implements MessageHandlerInterface
         $this->bus = $bus;
         $this->workflow = $commentStateMachine;
         $this->mailer = $mailer;
+        $this->imageOptimizer = $imageOptimizer;
         $this->adminEmail = $adminEmail;
+        $this->photoDir = $photoDir;
         $this->logger = $logger;
     }
 
@@ -44,7 +49,7 @@ class CommentMessageHandler implements MessageHandlerInterface
     {
         $comment = $this->commentRepository->find($message->getId());
 
-        if (!$comment){
+        if (!$comment) {
             return;
         }
 
@@ -54,18 +59,18 @@ class CommentMessageHandler implements MessageHandlerInterface
 //            $comment->setState('published');
 //        }
 
-        if ($this->workflow->can($comment, 'accept')){
+        if ($this->workflow->can($comment, 'accept')) {
             $score = $this->spamChecker->getSpamScore($comment, $message->getContext());
             $transition = 'accept';
-            if (2 === $score){
+            if (2 === $score) {
                 $transition = 'reject_spam';
-            } elseif (1 === $score){
+            } elseif (1 === $score) {
                 $transition = 'might_be-spam';
             }
             $this->workflow->apply($comment, $transition);
             $this->entityManager->flush();
             $this->bus->dispatch($message);
-        } elseif ($this->workflow->can($comment, 'publish') || $this->workflow->can($comment, 'publish_ham')){
+        } elseif ($this->workflow->can($comment, 'publish') || $this->workflow->can($comment, 'publish_ham')) {
 //            $this->workflow->apply($comment, $this->workflow
 //                ->can($comment, 'publish') ? 'publish' : 'publish_ham');
 //            $this->entityManager->flush();
@@ -76,7 +81,13 @@ class CommentMessageHandler implements MessageHandlerInterface
                 ->to($this->adminEmail)
                 ->context(['comment' => $comment])
             );
-        } elseif ($this->logger) {
+        } elseif ($this->workflow->can($comment, 'optimize')){
+            if ($comment->getPhotoFilename()) {
+                $this->imageOptimizer->resize($this->photoDir . '/' . $comment->getPhotoFilename());
+            }
+            $this->workflow->apply($comment, 'optimize');
+            $this->entityManager->flush();
+        } elseif ($this->logger){
             $this->logger->debug('Dropping comment message', [
                 'comment' => $comment->getId(),
                 'state' => $comment->getState()
