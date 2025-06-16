@@ -65,7 +65,7 @@ class CommentMessageHandler implements MessageHandlerInterface
             if (2 === $score) {
                 $transition = 'reject_spam';
             } elseif (1 === $score) {
-                $transition = 'might_be-spam';
+                $transition = 'might_be_spam';
             }
             $this->workflow->apply($comment, $transition);
             $this->entityManager->flush();
